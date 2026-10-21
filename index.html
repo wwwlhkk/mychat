@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>我的 AI 聊天</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, "Microsoft YaHei", sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: #f7f7f8;
+    }
+    header {
+      background: #343541;
+      color: #fff;
+      padding: 14px 20px;
+      font-size: 16px;
+      font-weight: 600;
+    }
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .msg {
+      max-width: 75%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .user {
+      align-self: flex-end;
+      background: #10a37f;
+      color: #fff;
+    }
+    .ai {
+      align-self: flex-start;
+      background: #fff;
+      border: 1px solid #e5e5e5;
+      color: #333;
+    }
+    .error {
+      align-self: flex-start;
+      background: #fdecea;
+      color: #b00020;
+    }
+    footer {
+      display: flex;
+      gap: 10px;
+      padding: 14px 20px;
+      background: #fff;
+      border-top: 1px solid #e5e5e5;
+    }
+    input {
+      flex: 1;
+      padding: 12px 14px;
+      font-size: 15px;
+      border: 1px solid #d9d9e3;
+      border-radius: 8px;
+      outline: none;
+    }
+    input:focus { border-color: #10a37f; }
+    button {
+      padding: 0 22px;
+      font-size: 15px;
+      border: none;
+      border-radius: 8px;
+      background: #10a37f;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:hover { background: #0e8e6f; }
+    button:disabled { background: #bbb; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <header>我的 AI 聊天（DeepSeek）</header>
+
+  <div id="chat"></div>
+
+  <footer>
+    <input id="input" placeholder="输入问题，回车发送…">
+    <button id="send">发送</button>
+  </footer>
+
+  <script>
+    const chat = document.getElementById('chat');
+    const input = document.getElementById('input');
+    const send = document.getElementById('send');
+
+    function addMsg(text, type) {
+      const div = document.createElement('div');
+      div.className = 'msg ' + type;
+      div.textContent = text;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight; // 自动滚到最下面
+    }
+
+    async function ask() {
+      const message = input.value.trim();
+      if (!message) return;
+
+      addMsg(message, 'user'); // 显示我说的
+      input.value = '';
+      send.disabled = true;
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: message }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          addMsg(data.error, 'error');
+        } else {
+          addMsg(data.reply, 'ai'); // 显示 AI 回的
+        }
+      } catch (e) {
+        addMsg('出错了：' + e, 'error');
+      } finally {
+        send.disabled = false;
+        input.focus();
+      }
+    }
+
+    send.addEventListener('click', ask);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') ask();
+    });
+  </script>
+</body>
+</html>
