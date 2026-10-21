@@ -16,9 +16,22 @@
     header {
       background: #343541;
       color: #fff;
-      padding: 14px 20px;
+      padding: 12px 20px;
       font-size: 16px;
       font-weight: 600;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    select {
+      padding: 6px 10px;
+      font-size: 14px;
+      border: 1px solid #555;
+      border-radius: 6px;
+      background: #343541;
+      color: #fff;
+      outline: none;
+      cursor: pointer;
     }
     #chat {
       flex: 1;
@@ -36,22 +49,9 @@
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .user {
-      align-self: flex-end;
-      background: #10a37f;
-      color: #fff;
-    }
-    .ai {
-      align-self: flex-start;
-      background: #fff;
-      border: 1px solid #e5e5e5;
-      color: #333;
-    }
-    .error {
-      align-self: flex-start;
-      background: #fdecea;
-      color: #b00020;
-    }
+    .user { align-self: flex-end; background: #10a37f; color: #fff; }
+    .ai { align-self: flex-start; background: #fff; border: 1px solid #e5e5e5; color: #333; }
+    .error { align-self: flex-start; background: #fdecea; color: #b00020; }
     footer {
       display: flex;
       gap: 10px;
@@ -82,7 +82,11 @@
   </style>
 </head>
 <body>
-  <header>我的 AI 聊天（DeepSeek）</header>
+  <header>
+    <span>我的 AI 聊天</span>
+    <!-- 下拉框：选择用哪个模型。选项由 JS 从后端 /api/models 动态填充 -->
+    <select id="model"></select>
+  </header>
 
   <div id="chat"></div>
 
@@ -92,48 +96,113 @@
   </footer>
 
   <script>
+    // ==================== 拿到页面元素（≈ 获取控件引用）====================
+    // document.getElementById('x') ≈ 按 id 找到页面上的某个元素，存进变量。
     const chat = document.getElementById('chat');
     const input = document.getElementById('input');
     const send = document.getElementById('send');
+    const modelSelect = document.getElementById('model'); // 模型下拉框
 
+    // ==================== 对话历史（存在浏览器内存里，刷新会清空）====================
+    // 每一项：{ role: 'user' | 'assistant', content: '一句话' }
+    const history = [];
+
+    // ==================== 页面一加载，就去后端拉模型清单，填进下拉框 ====================
+    // fetch(网址) ≈ 发一个 HTTP 请求，返回一个 Promise（异步！）。
+    // await ≈ "等这个异步结果"（只能用在 async 函数里）。
+    // 注意：async/await 本质还是回调，只是写起来像"顺序执行"，比纯回调好读。
+    async function loadModels() {
+      try {
+        const res = await fetch('/api/models');   // 请求后端模型清单
+        const models = await res.json();          // 解析 JSON（res.json() 也是异步）
+        for (const m of models) {                 // for...of ≈ Java 的 for-each
+          const opt = document.createElement('option'); // 造一个 <option>
+          opt.value = m.id;                        // <option value="deepseek-chat">
+          opt.textContent = m.name;                // 下拉框里显示的名字
+          modelSelect.appendChild(opt);            // 塞进 <select>
+        }
+      } catch (e) {
+        console.log('加载模型清单失败：', e); // 失败就打印在控制台（F12 能看到）
+      }
+    }
+    loadModels(); // 调用它
+
+    // ==================== 在聊天区加一个气泡 ====================
+    // 返回这个气泡元素，方便流式时往里一点点填字。
     function addMsg(text, type) {
-      const div = document.createElement('div');
-      div.className = 'msg ' + type;
-      div.textContent = text;
-      chat.appendChild(div);
-      chat.scrollTop = chat.scrollHeight; // 自动滚到最下面
+      const div = document.createElement('div'); // 造一个 <div>
+      div.className = 'msg ' + type;             // 设它的 class（决定样式/颜色）
+      div.textContent = text;                    // 设它的文字
+      chat.appendChild(div);                     // 放进聊天区
+      chat.scrollTop = chat.scrollHeight;        // 自动滚到最下面
+      return div;
     }
 
+    // ==================== 发消息 ====================
     async function ask() {
-      const message = input.value.trim();
+      const message = input.value.trim(); // .trim() 去掉首尾空格
       if (!message) return;
 
-      addMsg(message, 'user'); // 显示我说的
+      addMsg(message, 'user');                        // 显示我说的
+      history.push({ role: 'user', content: message }); // push ≈ 数组末尾加一个元素
       input.value = '';
       send.disabled = true;
+
+      const aiDiv = addMsg('', 'ai'); // 先建空 AI 气泡，等会儿一个字一个字填
 
       try {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: message }),
+          // 把【选中的模型 id】和【整段历史】一起发过去
+          body: JSON.stringify({
+            modelId: modelSelect.value, // 用户在下拉框选的那个模型
+            messages: history,
+          }),
         });
-        const data = await res.json();
-        if (data.error) {
-          addMsg(data.error, 'error');
-        } else {
-          addMsg(data.reply, 'ai'); // 显示 AI 回的
+
+        // !res.ok 表示 HTTP 状态码不是 2xx（比如 400/500 出错）
+        if (!res.ok) {
+          const data = await res.json();
+          aiDiv.textContent = data.error || '出错了';
+          aiDiv.className = 'msg error';
+          history.pop(); // pop ≈ 删掉数组最后一个元素（把刚记的话撤掉）
+          return;
         }
+
+        // ===== 流式读取：一段段接收，收到一点就更新气泡 → 打字机 =====
+        const reader = res.body.getReader(); // 拿到"流"的读取器
+        const decoder = new TextDecoder();   // 把字节解码成文字
+        let full = '';
+
+        while (true) {
+          const { done, value } = await reader.read(); // 读一块（异步）
+          if (done) break;                             // 读完了就退出循环
+          const text = decoder.decode(value, { stream: true });
+          full += text;               // 拼接到完整回答上
+          aiDiv.textContent = full;   // 更新气泡 → 视觉上就"一个字一个字蹦"
+          chat.scrollTop = chat.scrollHeight;
+        }
+        full += decoder.decode(); // 冲刷最后可能残留的半截字节
+        aiDiv.textContent = full;
+
+        history.push({ role: 'assistant', content: full }); // 记下 AI 的完整回答
+
       } catch (e) {
-        addMsg('出错了：' + e, 'error');
+        aiDiv.textContent = '出错了：' + e;
+        aiDiv.className = 'msg error';
+        history.pop();
       } finally {
+        // finally ≈ Java 的 finally：无论成功失败，都会执行。
         send.disabled = false;
-        input.focus();
+        input.focus(); // 焦点回到输入框，方便继续打字
       }
     }
 
-    send.addEventListener('click', ask);
-    input.addEventListener('keydown', function (e) {
+    // ==================== 绑定事件 ====================
+    // addEventListener ≈ 注册一个"监听器"：当某事件发生时，调用这个函数。
+    send.addEventListener('click', ask); // 点按钮 → 发消息
+    input.addEventListener('keydown', function (e) { // 按键盘 → 如果是回车就发
       if (e.key === 'Enter') ask();
     });
   </script>
